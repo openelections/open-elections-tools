@@ -1,0 +1,10 @@
+.dolt/
+__pycache__/
+.ipynb_checkpoints/
+.idea/
+.DS_Store
+*.egg-info
+dist
+.pytest_cache
+.eggs/
+.sqlhistory
