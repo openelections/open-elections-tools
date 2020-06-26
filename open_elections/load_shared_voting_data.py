@@ -1,6 +1,6 @@
 from open_elections.tools import PrecinctFile, StateMetadata, load_to_dolt
 from open_elections.config import build_state_metadata
-from open_elections.integrity_report_tools import run_report
+from open_elections.validation.integrity_report_tools import run_report
 import os
 from typing import List, Union
 import pandas as pd
@@ -73,7 +73,7 @@ def filepath_to_precinct_file(year: int,
 
 # TODO
 #   we actually just want to run a series of row cleaners that exist per state
-def extract_precinct_voting_data(raw_precinct_data: pd.DataFrame) -> List[dict]:
+def extract_precinct_voting_data(raw_precinct_data: pd.DataFrame, state_metadata: StateMetadata) -> List[dict]:
     not_null_pk = ensure_pks_non_null(raw_precinct_data[VOTING_DATA_PKS + ['votes']])
     deduplicated = not_null_pk.drop_duplicates(subset=VOTING_DATA_PKS)
     logger.warning(
@@ -193,7 +193,6 @@ def build_metadata_helper(state) -> StateMetadata:
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--state', type=str, help='State to load data for', required=True)
-    parser.add_argument('--integrtiy-report', action='store_true')
     parser.add_argument('--load-data', )
     parser.add_argument('--dolt-dir', type=str, help='Dolt repo directory')
     args = parser.parse_args()

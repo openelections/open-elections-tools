@@ -5,7 +5,7 @@ from typing import List, Tuple, Callable, Union, Iterable
 import re
 from doltpy.core import Dolt
 from doltpy.core.write import import_list
-from open_elections.pk_error_tools import parse_and_check_error
+from open_elections.validation.pk_error_tools import parse_and_check_error
 import logging
 import mysql
 
@@ -143,7 +143,7 @@ def load_to_dolt(dolt_dir: str,
                  dolt_pks: List[str],
                  state_metadata: StateMetadata,
                  vote_file_builder: VoteFileBuilder,
-                 table_data_builder: Callable[[pd.DataFrame], List[dict]]):
+                 table_data_builder: Callable[[pd.DataFrame, StateMetadata], List[dict]]):
     """
     Load to the dolt dir/table specified using given columns for primary keys.
     :param dolt_dir:
@@ -172,7 +172,7 @@ def load_to_dolt(dolt_dir: str,
 
 def files_to_table_data(state_metadata: StateMetadata,
                         vote_file_builder: VoteFileBuilder,
-                        table_data_builder: Callable[[pd.DataFrame], List[dict]]):
+                        table_data_builder: Callable[[pd.DataFrame], List[dict]]) -> List[dict]:
     """
     Uses state_metadata instance to map a collection of files to VoteFile objects that can be parsed into voting data.
     The vote_file_builder specifies how to map the file paths, combined with metadata, to VoteFile instances. The
