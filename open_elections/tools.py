@@ -6,11 +6,11 @@ import re
 from doltpy.core import Dolt
 from doltpy.core.write import import_list
 from open_elections.validation.pk_error_tools import parse_and_check_error
-import logging
+from open_elections.logging import get_logger
 import mysql
 
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 
 class StateMetadata:

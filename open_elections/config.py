@@ -1,11 +1,13 @@
 import os
 from open_elections.tools import StateMetadata, StateDataFormat
+from open_elections.logging import get_logger
 import pandas as pd
 from typing import List, Callable, Optional
 import importlib
 
-
 BASE_DIR = '/Users/oscarbatori/Documents/open-elections'
+
+logger = get_logger(__name__)
 
 
 def build_state_metadata(state: str,
@@ -42,7 +44,9 @@ def build_state_metadata(state: str,
                 columns = _combine_helper(columns, state_data_format.columns)
                 vote_columns = _combine_helper(vote_columns, state_data_format.vote_columns)
                 df_transformers = _combine_helper(df_transformers, state_data_format.df_transformers)
-                row_cleaners = _combine_helper(row_cleaners, state_data_format.row_cleaners)
+                # It is important the state specific row cleaners come first as they remove totally corrupt data,
+                # the general row cleaning just does basic stuff like nulling out nan strings etc.
+                row_cleaners = _combine_helper(state_data_format.row_cleaners, row_cleaners)
         else:
             if strict:
                 raise NotImplementedError('No member {} in module {}'.format(state_module_member,
@@ -68,7 +72,7 @@ def get_state_dir(state: str) -> str:
 
 
 def get_state_module_path(state: str) -> str:
-    return 'airflow_dags.open_elections.states.{}'.format(state)
+    return 'open_elections.states.{}'.format(state)
 
 
 def _combine_helper(left: Optional[list], right: Optional[list]):

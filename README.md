@@ -72,8 +72,8 @@ $ python airflow_dags/open_elections/load_shared_voting_data.py --state ca --loa
 
 Before doing that however we should run our integrity checks. These parse the files using the exact settings the loader will, and report any issues:
 ```
->>> from open_elections.load_shared_voting_data import run_integrity_report
->>> file_issues, data_issues = run_integrity_report('ca')
+>>> from open_elections.load_shared_voting_data import pre_clean_integrity_report
+>>> file_issues, data_issues = pre_clean_integrity_report('ca')
 >>> data_issues
     state                                           filename  ...  type_check value
 0     ca  /Users/oscarbatori/Documents/open-elections/op...  ...       False     X
@@ -119,7 +119,17 @@ national_precinct_dataformat = StateDataFormat(
 )
 ```
 
-The `opne_elections.config.build_metadata` function takes an argument called `state_module_member` which will pick up that value. It's already set in `open_elections.load_shared_voting_data.build_metadata_helper` which inserts the necessary this name, as well as the column names, since they are shared across the state. Now, when we convert the data in the state-wide frame to rows, that is a list of dicts, this function will be applied. Note that we do the modification in-place for performance reasons.
+The `opne_elections.config.build_metadata` function takes an argument called `state_module_member` which will pick up that value. It's already set in `open_elections.load_shared_voting_data.build_metadata_helper` which inserts the necessary this name, as well as the column names, since they are shared across the state. Now, when we convert the data in the state-wide frame to rows, that is a list of dicts, this function will be applied. Note that we do the modification in-place for performance reasons. We can another kind of validation to confirm that this worked via an iPython console:
+```
+>>> from open_elections.load_shared_voting_data import post_clean_integrity_report
+>>> post_clean_integrity_report('ca')
+Out[3]: 
+Empty DataFrame
+Columns: [state, filename]
+Index: []
+```
+
+See the notebook `tests/validatoin_scratch.ipynb`, which renders on GitHub, for an example of how to use this to data issues as output, and then validate that they are resolved. We can now run the command at the start of this section, which will execute a load to your running Dolt database.
 
 
 ## State Breakdowns
