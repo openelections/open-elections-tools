@@ -1,14 +1,14 @@
-from open_elections.tools import PrecinctFile, StateMetadata, load_to_dolt
+from open_elections.tools import PrecinctFile, StateMetadata, load_to_dolt, get_coerce_to_integer
 from open_elections.config import build_state_metadata
 from open_elections.validation.integrity_report_tools import check_post_clean, check_pre_clean
-from open_elections.logging import get_logger
+from open_elections.logging_helper import get_logger
+from doltpy.core import Dolt
 import os
-from typing import List, Union
+from typing import List, Union, Any
 import pandas as pd
 from datetime import datetime
-import logging
-import sys
 import argparse
+import re
 
 
 logger = get_logger(__name__)
@@ -36,7 +36,8 @@ STATE_DATA_FORMAT_MEMBER = 'national_precinct_dataformat'
 def filepath_to_precinct_file(year: int,
                               path: str,
                               file_name: str,
-                              state_metadata: StateMetadata) -> Union[None, PrecinctFile]:
+                              state_metadata: StateMetadata,
+                              excluded: bool) -> Union[None, PrecinctFile]:
     split = file_name.split('.')[0].split('__')
 
     special = 'special' in split
@@ -69,13 +70,15 @@ def filepath_to_precinct_file(year: int,
     else:
         date = datetime.strptime(date_str, '%Y%m%d')
 
-    return PrecinctFile(os.path.join(path, file_name), state_metadata, year, date, election, special)
+    return PrecinctFile(os.path.join(path, file_name), state_metadata, year, date, election, special, excluded)
 
 
 # TODO
 #   we actually just want to run a series of row cleaners that exist per state
 def extract_precinct_voting_data(raw_precinct_data: pd.DataFrame, state_metadata: StateMetadata) -> List[dict]:
-    not_null_pk = ensure_pks_non_null(raw_precinct_data[VOTING_DATA_PKS + ['votes']])
+    clean_precincts = raw_precinct_data.assign(precinct=raw_precinct_data['precinct'].apply(coerce_to_string),
+                                               district=raw_precinct_data['district'].apply(coerce_to_string))
+    not_null_pk = ensure_pks_non_null(clean_precincts[VOTING_DATA_PKS + ['votes']])
     deduplicated = not_null_pk.drop_duplicates(subset=VOTING_DATA_PKS)
     logger.warning(
         'There are {} records in the raw precinct data, and {} after de-duplicating'.format(
@@ -91,7 +94,8 @@ def extract_precinct_voting_data(raw_precinct_data: pd.DataFrame, state_metadata
     for dic in dicts:
         for row_cleaner in state_metadata.row_cleaners:
             row_cleaner(dic)
-            result.append(dic)
+
+        result.append(dic)
 
     return result
 
@@ -102,44 +106,7 @@ def coerce_votes_numeric(dic: dict):
     numerics to an integer object in Python memory. It also handles common strings that we infer to mean null/zero, such
     as the empty string.
     """
-    key = 'votes'
-    value = dic[key]
-    if type(value) == str:
-        if '-' in value:
-            print(value)
-        # Pandas inserts strange string forms of NaN sometimes
-        if value == 'nan':
-            dic[key] = None
-        # Some are formatted as floats and strings
-        if '.' in value:
-            try:
-                dic[key] = int(float(value))
-            except ValueError:
-                raise ValueError('{} is not a valid float'.format(value))
-        else:
-            # numbers such as 1,000
-            if ',' in value:
-                value = value.replace(',', '')
-                # Null out if there is nothing left
-                if value == '':
-                    dic[key] = None
-            # Null out if empty
-            if value == '':
-                dic[key] = None
-            else:
-                # Finally we (might) have an integer
-                # try:
-                dic[key] = int(value)
-                # except:
-                #     logger.warning('Setting value "{}" to None from dic {}'.format(value, dic))
-                #     dic[key] = None
-
-    elif pd.isna(value):
-        dic[key] = None
-    elif type(value) == int:
-        dic[key] = value
-    elif type(value) == float:
-        dic[key] = int(value)
+    dic['votes'] = get_coerce_to_integer()(dic['votes'])
 
 
 def ensure_pks_non_null(raw_data: pd.DataFrame) -> pd.DataFrame:
@@ -151,6 +118,19 @@ def ensure_pks_non_null(raw_data: pd.DataFrame) -> pd.DataFrame:
             temp[col] = 'NA'
 
     return temp
+
+
+def coerce_to_string(value: Any):
+    if type(value) == int:
+        return str(value)
+    elif type(value) == float:
+        return str(int(value))
+    elif type(value) == str:
+        if re.match(r'\d+\.\d+$', value):
+            return str(int(float(value)))
+        return value
+    else:
+        raise ValueError('Invalid preinct value {}'.format(value))
 
 
 def clean_vote_col_names(precinct_df: pd.DataFrame) -> pd.DataFrame:
@@ -194,14 +174,17 @@ def main():
     parser.add_argument('--state', type=str, help='State to load data for', required=True)
     parser.add_argument('--load-data', )
     parser.add_argument('--dolt-dir', type=str, help='Dolt repo directory')
+    parser.add_argument('--start-dolt-server', action='store_true')
     args = parser.parse_args()
+
+    repo = Dolt(args.dolt_dir)
+    if args.start_dolt_server:
+        logger.info('start-dolt-server detected, starting server sub process')
+        repo.sql_server(loglevel='trace')
 
     state_metadata = build_metadata_helper(args.state)
 
-    logger.setLevel('INFO')
-    logger.addHandler(logging.StreamHandler(sys.stdout))
-
-    load_to_dolt(args.dolt_dir,
+    load_to_dolt(repo,
                  'national_voting_data',
                  VOTING_DATA_PKS,
                  state_metadata,

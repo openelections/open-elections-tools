@@ -1,12 +1,11 @@
 from datetime import datetime
 import os
 import pandas as pd
-from typing import List, Tuple, Callable, Union, Iterable
+from typing import List, Tuple, Callable, Union, Iterable, Optional, Any
 import re
 from doltpy.core import Dolt
 from doltpy.core.write import import_list
-from open_elections.validation.pk_error_tools import parse_and_check_error
-from open_elections.logging import get_logger
+from open_elections.logging_helper import get_logger
 import mysql
 
 
@@ -23,13 +22,15 @@ class StateMetadata:
                  columns: List[str],
                  vote_columns: List[str],
                  df_transformers: List[Callable[[pd.DataFrame], pd.DataFrame]] = None,
-                 row_cleaners: Callable[[dict], dict] = None):
+                 row_cleaners: Callable[[dict], dict] = None,
+                 excluded_files: List[str] = None):
         self._source_dir = source_dir
         self.state = state
         self.columns = columns
         self.vote_columns = vote_columns
         self.df_transformers = df_transformers
         self.row_cleaners = row_cleaners
+        self.excluded_files = excluded_files
 
     @property
     def source_dir(self):
@@ -49,10 +50,12 @@ class StateDataFormat:
     data in a way specific to the issues that arise in a certain state's data.
     """
     def __init__(self,
+                 excluded_files: List[str] = None,
                  columns: List[str] = None,
                  vote_columns: List[str] = None,
                  df_transformers: List[Callable[[pd.DataFrame], pd.DataFrame]] = None,
                  row_cleaners: List[Callable[[dict], None]] = None):
+        self.excluded_files = excluded_files
         self.columns = columns
         self.vote_columns = vote_columns
         self.df_transformers = df_transformers
@@ -73,10 +76,6 @@ class VoteFile:
         """
         temp = df.copy()
 
-        for column in temp.columns:
-            if column.startswith('Unnamed'):
-                temp = temp.drop([column], axis=1)
-
         return temp.rename(columns={col: col.rstrip().lower() for col in temp.columns})
 
     def __init__(self,
@@ -85,13 +84,15 @@ class VoteFile:
                  year: int,
                  date: datetime,
                  election: str,
-                 is_special: bool):
+                 is_special: bool,
+                 excluded: bool):
         self.filepath = filepath
         self.state_metadata = state_metadata
         self.date = date
         self.election = election
         self.year = year
         self.is_special = is_special
+        self.excluded = excluded
 
         if state_metadata.df_transformers:
             self.df_transformers = [self.clean_column_names] + state_metadata.df_transformers
@@ -112,7 +113,7 @@ class VoteFile:
                                           date=self.date,
                                           election=self.election,
                                           special=self.is_special,
-                                          filepath=self.state_metadata.source_dir)
+                                          filepath=self.filepath)
 
         temp = enriched_df.copy()
         if self.df_transformers:
@@ -134,19 +135,19 @@ class OfficeFile(VoteFile):
     pass
 
 
-VoteFileBuilder = Callable[[int, str, str, 'StateMetadata'], 'VoteFile']
-TableDataBuilder = Callable[[pd.DataFrame], List[dict]]
+VoteFileBuilder = Callable[[int, str, str, 'StateMetadata', bool], 'VoteFile']
+TableDataBuilder = Callable[[pd.DataFrame, StateMetadata], List[dict]]
 
 
-def load_to_dolt(dolt_dir: str,
+def load_to_dolt(repo: Dolt,
                  dolt_table: str,
                  dolt_pks: List[str],
                  state_metadata: StateMetadata,
                  vote_file_builder: VoteFileBuilder,
-                 table_data_builder: Callable[[pd.DataFrame, StateMetadata], List[dict]]):
+                 table_data_builder: TableDataBuilder):
     """
     Load to the dolt dir/table specified using given columns for primary keys.
-    :param dolt_dir:
+    :param repo:
     :param dolt_table:
     :param dolt_pks:
     :param state_metadata:
@@ -158,21 +159,21 @@ def load_to_dolt(dolt_dir: str,
                 - dolt_dir    : {}
                 - dolt_table  : {}
                 - dolt_pks    : {}   
-            '''.format(state_metadata.state, dolt_dir, dolt_table, dolt_pks))
-    repo = Dolt(dolt_dir)
+            '''.format(state_metadata.state, repo.repo_dir(), dolt_table, dolt_pks))
     table_data = files_to_table_data(state_metadata, vote_file_builder, table_data_builder)
     try:
         import_list(repo, dolt_table, table_data, dolt_pks, import_mode='update', chunk_size=100000)
     except mysql.connector.errors.DatabaseError as e:
         if 'duplicate primary key given: ' in e.msg:
-            parse_and_check_error(e.msg, table_data)
+            logger.error(e)
+            raise e
         else:
             raise e
 
 
 def files_to_table_data(state_metadata: StateMetadata,
                         vote_file_builder: VoteFileBuilder,
-                        table_data_builder: Callable[[pd.DataFrame], List[dict]]) -> List[dict]:
+                        table_data_builder: TableDataBuilder) -> List[dict]:
     """
     Uses state_metadata instance to map a collection of files to VoteFile objects that can be parsed into voting data.
     The vote_file_builder specifies how to map the file paths, combined with metadata, to VoteFile instances. The
@@ -184,8 +185,9 @@ def files_to_table_data(state_metadata: StateMetadata,
     :return:
     """
     vote_file_objs = build_file_objects(state_metadata, vote_file_builder)
-    raw_voting_data = pd.concat([vote_file_obj.to_enriched_df() for vote_file_obj in vote_file_objs])
-    table_data = table_data_builder(raw_voting_data)
+    raw_voting_data = pd.concat([vote_file_obj.to_enriched_df() for vote_file_obj in vote_file_objs
+                                 if not vote_file_obj.excluded])
+    table_data = table_data_builder(raw_voting_data, state_metadata)
     return table_data
 
 
@@ -214,7 +216,7 @@ def build_file_objects(state_metadata: StateMetadata, vote_file_builder: VoteFil
         'Parsing filenames and extracting election metadata to combine with state metadata to build VoteFile instances'
     )
     for year, dirpath, filename in files:
-        result = vote_file_builder(year, dirpath, filename, state_metadata)
+        result = vote_file_builder(year, dirpath, filename, state_metadata, filename in state_metadata.excluded_files)
         if result:
             yield result
 
@@ -234,3 +236,41 @@ def gather_files(base_dir: str) -> List[Tuple[int, str, str]]:
                         logger.error('Error parsing year: (year, dirpath, filename): ({}, {}, {}'.format(
                             year, dirpath, filename
                         ))
+
+
+def get_coerce_to_integer(null_cases: List[Any] = None):
+    def inner(value: Any) -> Optional[int]:
+        if null_cases and value in null_cases:
+            return None
+        if type(value) == str:
+            # Pandas inserts strange string forms of NaN sometimes
+            if value == 'nan':
+                return None
+            # Some are formatted as floats and strings
+            if '.' in value:
+                try:
+                    return int(float(value))
+                except ValueError:
+                    raise ValueError('{} is not a valid float'.format(value))
+            else:
+                # numbers such as 1,000
+                if ',' in value:
+                    value = value.replace(',', '')
+                    # Null out if there is nothing left
+                    if value == '':
+                        return None
+                # Null out if empty
+                if value == '':
+                    return None
+                else:
+                    return int(value)
+        elif pd.isna(value):
+            return None
+        elif type(value) == int:
+            return value
+        elif type(value) == float:
+            return int(value)
+        else:
+            return value
+
+    return inner

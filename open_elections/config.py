@@ -1,6 +1,6 @@
 import os
 from open_elections.tools import StateMetadata, StateDataFormat
-from open_elections.logging import get_logger
+from open_elections.logging_helper import get_logger
 import pandas as pd
 from typing import List, Callable, Optional
 import importlib
@@ -32,6 +32,7 @@ def build_state_metadata(state: str,
     :return:
     """
     assert state in STATES, 'State {} not in: {}'.format(state, STATES)
+    excluded_files = []
 
     # try_module is True and so we should try and grab attributes from the state
     try:
@@ -41,6 +42,7 @@ def build_state_metadata(state: str,
             if type(state_data_format) != StateDataFormat:
                 raise TypeError('state_module_member must resolve an object of type StateDataFormat')
             else:
+                excluded_files = excluded_files if not state_data_format.excluded_files else state_data_format.excluded_files
                 columns = _combine_helper(columns, state_data_format.columns)
                 vote_columns = _combine_helper(vote_columns, state_data_format.vote_columns)
                 df_transformers = _combine_helper(df_transformers, state_data_format.df_transformers)
@@ -64,7 +66,8 @@ def build_state_metadata(state: str,
                          columns,
                          vote_columns,
                          df_transformers,
-                         row_cleaners)
+                         row_cleaners,
+                         excluded_files)
 
 
 def get_state_dir(state: str) -> str:
