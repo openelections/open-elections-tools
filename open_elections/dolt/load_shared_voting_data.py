@@ -1,7 +1,7 @@
 from open_elections.tools import PrecinctFile, StateMetadata, load_to_dolt, get_coerce_to_integer
-from open_elections.config import build_state_metadata
+from open_elections.tools.config import build_state_metadata
 from open_elections.validation.integrity_report_tools import check_post_clean, check_pre_clean
-from open_elections.logging_helper import get_logger
+from open_elections.tools.logging_helper import get_logger
 from doltpy.core import Dolt
 import os
 from typing import List, Union, Any

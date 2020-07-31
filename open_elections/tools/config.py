@@ -1,6 +1,6 @@
 import os
-from open_elections.tools import StateMetadata, StateDataFormat
-from open_elections.logging_helper import get_logger
+from open_elections.tools.reading import StateMetadata, StateDataFormat
+from open_elections.tools.logging_helper import get_logger
 import pandas as pd
 from typing import List, Callable, Optional
 import importlib
@@ -107,7 +107,6 @@ STATES = [
     'ky',
     'la',
     'me',
-    'md',
     'ma',
     'mi',
     'mn',
@@ -131,7 +130,6 @@ STATES = [
     'sd',
     'tn',
     'tx',
-    'ut',
     'vt',
     'va',
     'wa',

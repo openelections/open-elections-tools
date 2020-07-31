@@ -3,10 +3,7 @@ import os
 import pandas as pd
 from typing import List, Tuple, Callable, Union, Iterable, Optional, Any
 import re
-from doltpy.core import Dolt
-from doltpy.core.write import import_list
-from open_elections.logging_helper import get_logger
-import mysql
+from open_elections.tools.logging_helper import get_logger
 
 
 logger = get_logger(__name__)
@@ -137,38 +134,6 @@ class OfficeFile(VoteFile):
 
 VoteFileBuilder = Callable[[int, str, str, 'StateMetadata', bool], 'VoteFile']
 TableDataBuilder = Callable[[pd.DataFrame, StateMetadata], List[dict]]
-
-
-def load_to_dolt(repo: Dolt,
-                 dolt_table: str,
-                 dolt_pks: List[str],
-                 state_metadata: StateMetadata,
-                 vote_file_builder: VoteFileBuilder,
-                 table_data_builder: TableDataBuilder):
-    """
-    Load to the dolt dir/table specified using given columns for primary keys.
-    :param repo:
-    :param dolt_table:
-    :param dolt_pks:
-    :param state_metadata:
-    :param vote_file_builder:
-    :param table_data_builder:
-    :return:
-    """
-    logger.info('''Loading data for state {}:
-                - dolt_dir    : {}
-                - dolt_table  : {}
-                - dolt_pks    : {}   
-            '''.format(state_metadata.state, repo.repo_dir(), dolt_table, dolt_pks))
-    table_data = files_to_table_data(state_metadata, vote_file_builder, table_data_builder)
-    try:
-        import_list(repo, dolt_table, table_data, dolt_pks, import_mode='update', chunk_size=100000)
-    except mysql.connector.errors.DatabaseError as e:
-        if 'duplicate primary key given: ' in e.msg:
-            logger.error(e)
-            raise e
-        else:
-            raise e
 
 
 def files_to_table_data(state_metadata: StateMetadata,

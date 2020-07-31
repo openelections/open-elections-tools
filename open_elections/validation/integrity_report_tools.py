@@ -1,5 +1,5 @@
-from open_elections.tools import StateMetadata, VoteFile, VoteFileBuilder, build_file_objects
-from open_elections.logging_helper import get_logger
+from open_elections.tools.reading import StateMetadata, VoteFile, VoteFileBuilder, build_file_objects
+from open_elections.tools.logging_helper import get_logger
 from typing import List, Tuple, Optional, Any, Union, Callable, Iterable
 import pandas as pd
 
@@ -47,7 +47,7 @@ class VoteFileIntegrityReport:
         for i, dic in enumerate(data):
             for col in self.vote_file.state_metadata.vote_columns:
                 if col in dic and not self.is_numeric(dic[col]):
-                    results.append(dict(line_number=i + 1,
+                    results.append(dict(line_number=i+1,
                                         column_name=col,
                                         present=True,
                                         type_check=False,

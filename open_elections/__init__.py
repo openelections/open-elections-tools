@@ -1,1 +1,1 @@
-from .logging_helper import get_logger, LOG_LEVEL
+from open_elections.tools.logging_helper import get_logger, LOG_LEVEL
