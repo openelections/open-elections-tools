@@ -20,11 +20,17 @@ class FileEncodingException(DataFileException):
         super().__init__(state, year, path)
         self.encoding_exception = encoding_exception
 
+    def __str__(self):
+        return 'FileEncodingException caused by exception {}'.format(self.encoding_exception)
+
 
 class FileFormatException(DataFileException):
     def __init__(self, state: str, year: int, path: str, format_exception: Exception):
         super().__init__(state, year, path)
         self.format_exception = format_exception
+
+    def __str__(self):
+        return 'FileFormatException caused by exception {}'.format(self.format_exception)
 
 
 class ColumnMissingException(DataFileException):
@@ -32,17 +38,29 @@ class ColumnMissingException(DataFileException):
         super().__init__(state, year, path)
         self.column_name = column_name
 
+    def __str__(self):
+        return 'Column {} missing from file'.format(self.column_name)
+
 
 class ValueTypeException(DataFileException):
     def __init__(self,
                  state: str,
                  year: int,
                  path: str,
-                 required_type: type,
+                 column_name: str,
+                 column_type: type,
                  values_and_line_numbers: Mapping[int, Any]):
         super().__init__(state, year, path)
-        self.required_type = required_type
+        self.column_name = column_name
+        self.column_type = column_type
         self.values_and_line_numbers = values_and_line_numbers
+
+    def __str__(self):
+        return 'ValueTypeException caused by values for column {} not being of type {}:\n {}'.format(
+            self.column_name,
+            self.column_type,
+            self.values_and_line_numbers
+        )
 
 
 def validate_file(state: str, year: int, path: str, schema_def: Mapping[str, type]) -> List[DataFileException]:
@@ -66,7 +84,8 @@ def validate_file(state: str, year: int, path: str, schema_def: Mapping[str, typ
         logger.info('Checking types of column {} in file {}'.format(column_name, path))
         column_type = schema_def[column_name]
         errors = check_types(data[column_name], column_type)
-        exceptions.append(ValueTypeException(state, year, path, column_type, errors))
+        if errors:
+            exceptions.append(ValueTypeException(state, year, path, column_name, column_type, errors))
 
     return exceptions
 
@@ -75,7 +94,8 @@ def check_types(values: List[Any], column_type: type) -> Mapping[int, Any]:
     errors = {}
     for i, v in enumerate(values):
         try:
-            column_type(v)
+            if not pd.isna(v):
+                column_type(v)
         except Exception:
             errors[i] = v
 
@@ -113,7 +133,8 @@ def run_checks(base_dir: str, state: str, years: List[int] = None):
 def get_schema_def(base_dir: str) -> Mapping[int, Mapping[str, type]]:
     path = os.path.join(base_dir, 'column_types.csv')
     df = pd.read_csv(path)
-    assert df.columns == ['year', 'column', 'type']
+    schema_def_cols = ['year', 'column', 'type']
+    assert all(col in schema_def_cols for col in df.columns), 'schema def file must contain {}'.format(schema_def_cols)
     result = {}
     for record in df.to_dict('records'):
         year, column_name, column_type = record['year'], record['column'], record['type']
@@ -121,7 +142,7 @@ def get_schema_def(base_dir: str) -> Mapping[int, Mapping[str, type]]:
         if year in result:
             result[year][column_name] = resolved_column_type
         else:
-            result[year] = {column_name : resolved_column_type}
+            result[year] = {column_name: resolved_column_type}
 
     return result
 
@@ -133,6 +154,13 @@ def _resolve_column_type(column_type: str):
         return int
     else:
         raise ValueError('Type {} is not supported'.format(column_type))
+
+
+def display_exceptions(exceptions: Mapping[str, List[DataFileException]]):
+    for path, exceptions in exceptions.items():
+        logger.info('Showing exceptions for file {}'.format(path))
+        for exception in exceptions:
+            logger.info(exception)
 
 
 def main():
@@ -149,7 +177,8 @@ def main():
         raise e
 
     assert os.path.exists(args.base_dir), 'The directory passed to --base-dir must exist'
-    run_checks(args.base_dir, args.state, years)
+    exceptions = run_checks(args.base_dir, args.state, years)
+    display_exceptions(exceptions)
 
 
 if __name__ == '__main__':
