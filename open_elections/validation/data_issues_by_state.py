@@ -3,6 +3,7 @@ from open_elections.tools.logging_helper import get_logger
 import pandas as pd
 import os
 from typing import List, Mapping, Any, Tuple, Optional
+import argparse
 
 logger = get_logger(__name__)
 
@@ -171,3 +172,25 @@ def display_exceptions(exceptions: Mapping[str, List[DataFileException]]):
         logger.error('Showing exceptions for file {}'.format(path))
         for exception in exceptions:
             logger.error(exception)
+
+
+def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--years', type=str)
+    parser.add_argument('--state', type=str, required=True)
+    parser.add_argument('--base-dir', type=str, required=True)
+    args = parser.parse_args()
+
+    try:
+        years = [int(year) for year in args.years.split(',')]
+    except ValueError as e:
+        logger.error('--years expects a commma separated list of integer values')
+        raise e
+
+    assert os.path.exists(args.base_dir), 'The directory passed to --base-dir must exist'
+    exceptions = run_checks(args.base_dir, args.state, years)
+    display_exceptions(exceptions)
+
+
+if __name__ == '__main__':
+    main()
