@@ -4,6 +4,7 @@ import pandas as pd
 import os
 from typing import List, Mapping, Any, Tuple, Optional
 import argparse
+import sys
 
 logger = get_logger(__name__)
 
@@ -190,6 +191,13 @@ def main():
     assert os.path.exists(args.base_dir), 'The directory passed to --base-dir must exist'
     exceptions = run_checks(args.base_dir, args.state, years)
     display_exceptions(exceptions)
+    if exceptions:
+        logger.error('Exceptions found, exiting with non-zero error code')
+        sys.exit(1)
+    else:
+        logger.info('Data is clean, exiting')
+        sys.exit(0)
+
 
 
 if __name__ == '__main__':
